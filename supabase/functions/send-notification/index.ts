@@ -40,13 +40,15 @@ async function getAccessToken(): Promise<string> {
   )
 
   // Create the JWT
+  const now = Math.floor(Date.now() / 1000)
   const jwt = await create(
     { alg: 'RS256', typ: 'JWT' },
     {
       iss: serviceAccount.client_email,
       scope: 'https://www.googleapis.com/auth/firebase.messaging',
       aud: 'https://oauth2.googleapis.com/token',
-      exp: getNumericDate(3600), // Expires in 1 hour
+      exp: now + 3600,
+      iat: now,
     },
     key
   )
