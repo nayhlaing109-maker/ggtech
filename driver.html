@@ -157,20 +157,31 @@
     const app = firebase.initializeApp(firebaseConfig);
     const messaging = firebase.messaging();
 
-    // Firebase initialize လုပ်ပြီးတာနဲ့ ဒါလေးထည့်ပါ
-navigator.serviceWorker.register('/Ggtaxi/firebase-messaging-sw.js')
-  .then((registration) => {
-    messaging.useServiceWorker(registration);
-    console.log('Service Worker registered successfully');
-  })
-  .catch((err) => {
-    console.log('Service Worker registration failed:', err);
-  });
+    // Service Worker Registration and FCM Token
+    let swRegistration = null;
+    
+    navigator.serviceWorker.register('/Ggtaxi/firebase-messaging-sw.js')
+      .then((registration) => {
+        swRegistration = registration;
+        console.log('Service Worker registered successfully');
+        // Request token after SW is registered
+        requestToken();
+      })
+      .catch((err) => {
+        console.log('Service Worker registration failed:', err);
+      });
 
 async function requestToken() {
     try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            console.log('Notification permission denied');
+            return;
+        }
+        
         const token = await messaging.getToken({ 
-            vapidKey: 'BJboSWTePyZJaTV9i7QiWNL2Fuy6ldPGqDulBnI02yHTft4wtsQtC83X6D7g0dT1HJR3ScpQjJghXZ4G6Yc330E' 
+            vapidKey: 'BJboSWTePyZJaTV9i7QiWNL2Fuy6ldPGqDulBnI02yHTft4wtsQtC83X6D7g0dT1HJR3ScpQjJghXZ4G6Yc330E',
+            serviceWorkerRegistration: swRegistration
         });
         
         if (token) {
@@ -253,9 +264,7 @@ async function requestToken() {
             myMarker = L.marker([myPos.lat, myPos.lng], { icon: myIcon }).addTo(map);
             map.on('dragstart', () => document.getElementById('recenter-btn').style.display = 'flex');
             startLocationTracking();
-        // Notification Token တောင်းပြီး Supabase မှာ သိမ်းရန် ခေါ်ယူခြင်း
-    requestToken(); 
-}
+        }
 
         // --- Realtime Location Update logic ပေါင်းထည့်ထားပါသည် ---
         function startLocationTracking() {
