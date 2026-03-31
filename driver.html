@@ -264,6 +264,7 @@ async function requestToken() {
             myMarker = L.marker([myPos.lat, myPos.lng], { icon: myIcon }).addTo(map);
             map.on('dragstart', () => document.getElementById('recenter-btn').style.display = 'flex');
             startLocationTracking();
+            setupRealtimeNotifications();
         }
 
         // --- Realtime Location Update logic ပေါင်းထည့်ထားပါသည် ---
@@ -439,6 +440,68 @@ async function requestToken() {
 
         function logout() { if(confirm("Logout?")) { localStorage.clear(); location.reload(); } }
         function recenterMap() { map.flyTo([myPos.lat, myPos.lng], 16); document.getElementById('recenter-btn').style.display = 'none'; }
+
+        // --- Supabase Realtime Notifications ---
+        function setupRealtimeNotifications() {
+            // Request notification permission first
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+
+            // Listen to notifications table
+            const notificationsChannel = _supabase.channel('driver-notifications')
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'notifications',
+                    filter: `driver_id=eq.${driverId}`
+                }, (payload) => {
+                    showBrowserNotification(payload.new);
+                })
+                .subscribe();
+
+            // Listen to bookings table for new bookings
+            const bookingsChannel = _supabase.channel('driver-bookings')
+                .on('postgres_changes', {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'bookings',
+                    filter: `assigned_driver=eq.${driverId}`
+                }, (payload) => {
+                    if (payload.new.status === 'pending') {
+                        showBrowserNotification({
+                            title: '🚕 New Booking Request!',
+                            body: `From: ${payload.new.pickup_addr} To: ${payload.new.dest_addr}`,
+                            data: { type: 'booking', booking: payload.new }
+                        });
+                    }
+                })
+                .subscribe();
+        }
+
+        function showBrowserNotification(notification) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                const notif = new Notification(notification.title, {
+                    body: notification.body,
+                    icon: '/favicon.ico',
+                    tag: notification.data?.type || 'general',
+                    requireInteraction: true
+                });
+
+                notif.onclick = () => {
+                    if (notification.data?.type === 'booking') {
+                        // Refresh to show new booking
+                        location.reload();
+                    }
+                    notif.close();
+                };
+
+                // Auto close after 5 seconds
+                setTimeout(() => {
+                    notif.close();
+                }, 5000);
+            }
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Realtime Notification Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #218838;
+        }
+        button.primary {
+            background: #007bff;
+        }
+        button.primary:hover {
+            background: #0056b3;
+        }
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔔 Supabase Realtime Notification Test</h1>
+        
+        <div class="form-group">
+            <label>Driver Phone Number:</label>
+            <input type="text" id="driverPhone" placeholder="e.g., 09123456789" value="09123456789">
+        </div>
+        
+        <div class="form-group">
+            <label>Notification Title:</label>
+            <input type="text" id="title" value="Test Notification" placeholder="Enter title">
+        </div>
+        
+        <div class="form-group">
+            <label>Notification Body:</label>
+            <textarea id="body" rows="3" placeholder="Enter message body">This is a test notification from Supabase Realtime!</textarea>
+        </div>
+        
+        <button onclick="sendDirectNotification()" class="primary">Send Direct Notification</button>
+        <button onclick="sendBookingNotification">Send Booking Notification</button>
+        
+        <div id="status"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2bnJycWpoemdhdWxmdnJqY2F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MTUwMDUsImV4cCI6MjA4ODA5MTAwNX0.ItRRfDMI7Go0F1kCJTXOzYrY620PpSMx_iy3qfXBxTc';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function sendDirectNotification() {
+            const driverPhone = document.getElementById('driverPhone').value;
+            const title = document.getElementById('title').value;
+            const body = document.getElementById('body').value;
+            const statusDiv = document.getElementById('status');
+            
+            if (!driverPhone || !title || !body) {
+                showStatus('Please fill all fields', 'error');
+                return;
+            }
+            
+            showStatus('Sending notification...', 'info');
+            
+            try {
+                // Get driver info
+                const cleanId = driverPhone.startsWith('0') ? driverPhone.substring(1) : driverPhone;
+                const { data: driver, error: driverError } = await _supabase
+                    .from('drivers')
+                    .select('id')
+                    .eq('id', cleanId)
+                    .single();
+                
+                if (driverError || !driver) {
+                    showStatus('Driver not found', 'error');
+                    return;
+                }
+                
+                // Insert notification into notifications table
+                const { data, error } = await _supabase
+                    .from('notifications')
+                    .insert({
+                        driver_id: driver.id,
+                        title: title,
+                        body: body,
+                        created_at: new Date().toISOString(),
+                        read: false
+                    });
+                
+                if (error) {
+                    showStatus(`Error: ${error.message}`, 'error');
+                } else {
+                    showStatus('✅ Notification sent successfully! Driver should receive it instantly.', 'success');
+                }
+                
+            } catch (err) {
+                showStatus(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function sendBookingNotification() {
+            const driverPhone = document.getElementById('driverPhone').value;
+            const statusDiv = document.getElementById('status');
+            
+            if (!driverPhone) {
+                showStatus('Please enter driver phone', 'error');
+                return;
+            }
+            
+            showStatus('Creating test booking...', 'info');
+            
+            try {
+                // Get driver info
+                const cleanId = driverPhone.startsWith('0') ? driverPhone.substring(1) : driverPhone;
+                const { data: driver, error: driverError } = await _supabase
+                    .from('drivers')
+                    .select('id, driver_name')
+                    .eq('id', cleanId)
+                    .single();
+                
+                if (driverError || !driver) {
+                    showStatus('Driver not found', 'error');
+                    return;
+                }
+                
+                // Create test booking
+                const { data, error } = await _supabase
+                    .from('bookings')
+                    .insert({
+                        user_id: 1,
+                        driver_id: driver.id,
+                        assigned_driver: driverPhone,
+                        driver_name: driver.driver_name,
+                        status: 'pending',
+                        pickup_addr: 'Yangon International Airport',
+                        dest_addr: 'Shwedagon Pagoda',
+                        u_lat: 16.9071,
+                        u_lng: 96.1299,
+                        dest_lat: 16.7950,
+                        dest_lng: 96.1500,
+                        fare: 5000,
+                        created_at: new Date().toISOString()
+                    });
+                
+                if (error) {
+                    showStatus(`Error: ${error.message}`, 'error');
+                } else {
+                    showStatus('✅ Test booking created! Driver should receive booking notification.', 'success');
+                }
+                
+            } catch (err) {
+                showStatus(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const div = document.getElementById('status');
+            div.className = `status ${type}`;
+            div.innerHTML = message;
+        }
+    </script>
+</body>
+</html>
