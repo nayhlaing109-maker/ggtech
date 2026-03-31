@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Pya Pay - Passenger App</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #002b5c; --accent: #007bff; --red: #ff4757; --success: #2ecc71; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #f4f7f6; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+
+        /* Floating Controls */
+        .loc-btn { position: absolute; right: 20px; bottom: 380px; z-index: 1005; background: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.2); color: var(--accent); cursor: pointer; }
+
+        .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 100; pointer-events: none; }
+        .pin-icon { font-size: 40px; text-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+
+        /* UI Box */
+        .ui-box { position: fixed; bottom: 0; width: 100%; background: white; border-top-left-radius: 25px; border-top-right-radius: 25px; z-index: 1000; padding: 20px; box-sizing: border-box; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); }
+        .input-row { display: flex; align-items: center; background: #f8f9fa; border: 2px solid transparent; border-radius: 12px; padding: 10px; margin-bottom: 8px; }
+        .input-row.active.pickup { border-color: var(--accent); background: white; }
+        .input-row.active.dest { border-color: var(--red); background: white; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 15px; flex-shrink: 0; }
+        .input-box { flex: 1; border: none; background: transparent; font-size: 14px; outline: none; padding: 5px 0; color: #333; }
+        
+        /* Search Suggestions */
+        .search-results { position: absolute; bottom: 330px; left: 20px; right: 20px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 1001; max-height: 200px; overflow-y: auto; display: none; }
+        .result-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; font-size: 13px; }
+        .result-item i { margin-right: 12px; color: #888; }
+
+        /* Waiting & Live UI */
+        #waiting-ui { display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px 10px; }
+        .loader { width: 45px; height: 45px; border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #live-ui { display: none; animation: slideUp 0.3s ease-out; }
+        .driver-card { display: flex; align-items: center; background: #f8f9fa; padding: 15px; border-radius: 18px; margin: 15px 0; border: 1px solid #eee; }
+        .call-btn { margin-left: auto; width: 50px; height: 50px; background: var(--success); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 20px; box-shadow: 0 4px 10px rgba(46, 204, 113, 0.3); }
+
+        .btn-main { width: 100%; padding: 16px; background: var(--primary); color: white; border: none; border-radius: 15px; font-size: 18px; font-weight: bold; cursor: pointer; }
+        .btn-cancel { width: 100%; padding: 12px; background: #fff; color: var(--red); border: 1px solid var(--red); border-radius: 12px; margin-top: 10px; cursor: pointer; font-weight: bold; }
+
+        /* Taxi Marker Style */
+        .taxi-marker-container {
+            background: white;
+            padding: 5px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            border: 2px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .leaflet-routing-container { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div class="loc-btn" onclick="goToMyLocation()">
+        <i class="fa-solid fa-location-crosshairs fa-lg"></i>
+    </div>
+
+    <div class="center-pin" id="pin-ui">
+        <i class="fa-solid fa-location-dot pin-icon" id="target-pin" style="color: var(--accent);"></i>
+    </div>
+
+    <div id="search-list" class="search-results"></div>
+
+    <div class="ui-box">
+        <div id="selection-ui">
+            <div class="input-row active pickup" id="p-row" onclick="setMode('pickup')">
+                <div class="dot" style="background: var(--accent);"></div>
+                <input type="text" class="input-box" id="p-addr" placeholder="အစမှတ် ရွေးချယ်ပါ" readonly>
+            </div>
+            <div class="input-row" id="d-row">
+                <div class="dot" style="background: var(--red);"></div>
+                <input type="text" class="input-box" id="d-addr" placeholder="ဘယ်ကိုသွားမလဲ?" onfocus="setMode('dest')" oninput="osmSuggest(this.value)" autocomplete="off">
+            </div>
+            <div class="input-row" style="background: #fff; border: 1.5px solid #eee; margin-top: 5px;">
+                <i class="fa-solid fa-phone" style="margin-right: 10px; color: #777;"></i>
+                <input type="number" class="input-box" id="u-phone" placeholder="ဆက်သွယ်ရမည့် ဖုန်းနံပါတ်">
+            </div>
+            <h3 id="fare-txt" style="text-align: center; margin: 10px 0; font-size: 18px; color: var(--success); display: none;">ခန့်မှန်းခြေ: - ကျပ်</h3>
+            <button id="main-btn" class="btn-main" onclick="handleAction()">အစမှတ် အတည်ပြုပါ</button>
+        </div>
+
+        <div id="waiting-ui">
+            <div class="loader"></div>
+            <h3 style="color: var(--primary); margin: 0;">ယာဉ်မောင်း ရှာဖွေနေသည်...</h3>
+            <p style="font-size: 13px; color: #777;">အနီးဆုံးယာဉ်မောင်းအား ချိတ်ဆက်နေပါသည်</p>
+            <button class="btn-cancel" onclick="cancelBooking()">ပယ်ဖျက်မည်</button>
+        </div>
+
+        <div id="live-ui">
+            <div style="color: var(--success); font-weight: bold; text-align: center; margin-bottom: 5px;">ယာဉ်မောင်း လက်ခံလိုက်ပါပြီ!</div>
+            <div class="driver-card">
+                <div style="width: 50px; height: 50px; border-radius: 50%; background: #002b5c; margin-right: 15px; display: flex; align-items: center; justify-content: center; color: white;">
+                    <i class="fa-solid fa-user fa-lg"></i>
+                </div>
+                <div style="text-align: left; flex: 1;">
+                    <b id="d-name">ယာဉ်မောင်းနာမည်</b><br>
+                    <span id="d-car" style="color: var(--accent); font-weight: bold;">ယာဉ်နံပါတ် စစ်ဆေးနေဆဲ</span>
+                </div>
+                <a href="#" id="d-phone-btn" class="call-btn">
+                    <i class="fa fa-phone"></i>
+                </a>
+            </div>
+            <button class="btn-cancel" onclick="cancelBooking()">ခရီးစဉ် ပယ်ဖျက်မည်</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script>
+        const SUPABASE_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2bnJycWpoemdhdWxmdnJqY2F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MTUwMDUsImV4cCI6MjA4ODA5MTAwNX0.ItRRfDMI7Go0F1kCJTXOzYrY620PpSMx_iy3qfXBxTc';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const MAPTILER_KEY = 'DHI37vqEidI6YUwie3o6'; 
+        const MAPBOX_TOKEN = 'YOUR_MAPBOX_TOKEN'; // Get from Mapbox.com
+
+        let map, mode = 'pickup', routeControl, myLocMarker, driverMarker;
+        let pLoc = null, dLoc = null, pMarker, dMarker, currentFare = 0, currentBookingId = null;
+        let searchTimeout;
+
+        // Custom Taxi Icon for Realtime Tracking
+        const taxiIcon = L.divIcon({ 
+            html: '<div class="taxi-marker-container"><i class="fa-solid fa-car-side" style="color:#e67e22; font-size:18px;"></i></div>', 
+            className: 'custom-taxi-marker',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+        });
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([21.9588, 96.0891], 15);
+            L.tileLayer(`https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${MAPTILER_KEY}`).addTo(map);
+            
+            map.on('moveend', () => {
+                if(document.getElementById('pin-ui').style.display !== 'none') {
+                    reverseGeocode(map.getCenter().lat, map.getCenter().lng);
+                }
+            });
+            goToMyLocation();
+        }
+
+        function goToMyLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+                    map.setView([lat, lng], 16);
+                    if(myLocMarker) map.removeLayer(myLocMarker);
+                    myLocMarker = L.circleMarker([lat, lng], { radius: 7, fillColor: "#007bff", color: "white", weight: 2, fillOpacity: 1 }).addTo(map);
+                    if(!pLoc) reverseGeocode(lat, lng);
+                }, null, {enableHighAccuracy: true});
+            }
+        }
+
+        async function reverseGeocode(lat, lng) {
+            const elId = mode === 'pickup' ? 'p-addr' : 'd-addr';
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=my,en`);
+                const data = await res.json();
+                document.getElementById(elId).value = data.display_name.split(',')[0] || "Unknown Location";
+                if(mode === 'pickup') pLoc = {lat, lng}; else dLoc = {lat, lng};
+            } catch(e) {}
+        }
+
+        async function osmSuggest(val) {
+            clearTimeout(searchTimeout);
+            if (val.length < 2) { document.getElementById('search-list').style.display = 'none'; return; }
+
+            searchTimeout = setTimeout(async () => {
+                const viewbox = "96.00,21.80,96.25,22.10"; 
+                const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}&addressdetails=1&limit=6&countrycodes=mm&viewbox=${viewbox}&bounded=1&accept-language=my,en`;
+                try {
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    const listDiv = document.getElementById('search-list');
+                    listDiv.innerHTML = "";
+                    if(data.length > 0) {
+                        data.forEach(item => {
+                            const div = document.createElement('div');
+                            div.className = 'result-item';
+                            div.innerHTML = `<i class="fa-solid fa-location-dot"></i><div>${item.display_name}</div>`;
+                            div.onclick = () => {
+                                dLoc = { lat: parseFloat(item.lat), lng: parseFloat(item.lon) };
+                                document.getElementById('d-addr').value = item.display_name.split(',')[0];
+                                listDiv.style.display = 'none';
+                                map.setView([dLoc.lat, dLoc.lng], 16);
+                            };
+                            listDiv.appendChild(div);
+                        });
+                        listDiv.style.display = 'block';
+                    } else { listDiv.style.display = 'none'; }
+                } catch(e) {}
+            }, 500);
+        }
+
+        function setMode(m) {
+            mode = m;
+            document.querySelectorAll('.input-row').forEach(r => r.classList.remove('active', 'pickup', 'dest'));
+            document.getElementById(m === 'pickup' ? 'p-row' : 'd-row').classList.add('active', m);
+            document.getElementById('target-pin').style.color = m === 'pickup' ? "#007bff" : "#ff4757";
+            document.getElementById('pin-ui').style.display = 'block';
+            document.getElementById('search-list').style.display = 'none';
+            if(routeControl) { map.removeControl(routeControl); routeControl = null; }
+            document.getElementById('fare-txt').style.display = 'none';
+            document.getElementById('main-btn').innerText = m === 'pickup' ? "အစမှတ် အတည်ပြုပါ" : "သွားမည့်နေရာ အတည်ပြုပါ";
+        }
+
+        function handleAction() {
+            const c = map.getCenter();
+            if(mode === 'pickup') {
+                if(pMarker) map.removeLayer(pMarker);
+                pMarker = L.circleMarker([c.lat, c.lng], { radius: 8, fillColor: "#007bff", color: "white", weight: 3, fillOpacity: 1 }).addTo(map);
+                pLoc = {lat: c.lat, lng: c.lng};
+                setMode('dest');
+            } else if(mode === 'dest' && !routeControl) {
+                if(dMarker) map.removeLayer(dMarker);
+                dMarker = L.circleMarker([c.lat, c.lng], { radius: 8, fillColor: "#ff4757", color: "white", weight: 3, fillOpacity: 1 }).addTo(map);
+                dLoc = {lat: c.lat, lng: c.lng};
+                drawRoute();
+            } else {
+                startBooking();
+            }
+        }
+
+        async function getPricingConfig() {
+            try {
+                const { data, error } = await _supabase.from('settings').select('*').eq('id', 1).single();
+                if (error) throw error;
+                return data;
+            } catch (err) {
+                return { base: 2500, km_price: 1000, platform: 500 };
+            }
+        }
+
+        async function drawRoute() {
+            document.getElementById('pin-ui').style.display = 'none';
+            const config = await getPricingConfig();
+
+            routeControl = L.Routing.control({
+                waypoints: [L.latLng(pLoc.lat, pLoc.lng), L.latLng(dLoc.lat, dLoc.lng)],
+                router: L.Routing.mapbox(MAPBOX_TOKEN),
+                lineOptions: { styles: [{ color: '#007bff', weight: 6, opacity: 0.8 }], extendToWaypoints: true },
+                addWaypoints: false, draggableWaypoints: false, createMarker: () => null
+            }).on('routesfound', (e) => {
+                const summary = e.routes[0].summary;
+                const dist = summary.totalDistance / 1000;
+                currentFare = Math.round(Number(config.base) + (dist * Number(config.km_price)));
+                document.getElementById('fare-txt').innerText = `ခန့်မှန်းခြေ: ${currentFare.toLocaleString()} ကျပ် (${dist.toFixed(2)} km)`;
+                document.getElementById('fare-txt').style.display = 'block';
+                document.getElementById('main-btn').innerText = "🚕 အခုပဲ ခေါ်ဆိုမည်";
+                map.fitBounds(L.latLngBounds([pLoc.lat, pLoc.lng], [dLoc.lat, dLoc.lng]), { padding: [50, 100] });
+            }).addTo(map);
+        }
+
+        async function startBooking() {
+            const phone = document.getElementById('u-phone').value;
+            if(!phone || phone.length < 7) return alert("ဖုန်းနံပါတ် မှန်ကန်စွာ ထည့်ပါ");
+
+            const { data: drivers, error: rpcError } = await _supabase.rpc('find_nearest_driver', { 
+                pickup_lat: pLoc.lat, 
+                pickup_lng: pLoc.lng 
+            });
+
+            if (rpcError || !drivers || drivers.length === 0) {
+                return alert("စိတ်မရှိပါနဲ့၊ အနီးအနားတွင် အွန်လိုင်းဖြစ်နေသော ယာဉ်မောင်းမရှိသေးပါ။");
+            }
+
+            const nearestDriverPhone = drivers[0].driver_phone;
+            document.getElementById('selection-ui').style.display = 'none';
+            document.getElementById('waiting-ui').style.display = 'flex';
+
+            const { data, error } = await _supabase.from('bookings').insert([{
+                u_phone: phone, u_lat: pLoc.lat, u_lng: pLoc.lng, dest_lat: dLoc.lat, dest_lng: dLoc.lng,
+                pickup_addr: document.getElementById('p-addr').value, dest_addr: document.getElementById('d-addr').value,
+                fare: currentFare, status: 'pending', 
+                assigned_driver: nearestDriverPhone
+            }]).select();
+
+            if (!error) {
+                currentBookingId = data[0].id;
+                trackBooking(currentBookingId);
+            }
+        }
+
+        function trackBooking(id) {
+            _supabase.channel('tracking').on('postgres_changes', { 
+                event: 'UPDATE', schema: 'public', table: 'bookings', filter: `id=eq.${id}` 
+            }, payload => {
+                const b = payload.new;
+                
+                // ၁။ Driver လက်ခံလျှင် UI ပြောင်းမည်
+                if (b.status === 'accepted') { showDriverDetails(b); }
+                
+                // ၂။ Driver ရွေ့လျားမှုကို Realtime ပြမည်
+                if (b.driver_lat && b.driver_lng) { 
+                    updateDriverMarker(b.driver_lat, b.driver_lng); 
+                }
+
+                // ၃။ ခရီးစဉ် ပြီးဆုံးလျှင်
+                if (b.status.toLowerCase() === 'completed' || b.status.toLowerCase() === 'finished') {
+                    alert("ခရီးစဉ် ပြီးဆုံးပါပြီ။ ကျေးဇူးတင်ပါသည်။");
+                    location.reload(); 
+                }
+
+                // ၄။ Driver က ပယ်ဖျက်လျှင် သို့မဟုတ် Driver မရှိတော့လျှင်
+                if (b.status === 'pending' && !b.assigned_driver) { reassignNearestDriver(); }
+            }).subscribe();
+        }
+
+        async function reassignNearestDriver() {
+            const { data: drivers, error } = await _supabase.rpc('find_nearest_driver', { pickup_lat: pLoc.lat, pickup_lng: pLoc.lng });
+            if (!error && drivers && drivers.length > 0) {
+                const nextDriver = drivers[0].driver_phone;
+                await _supabase.from('bookings').update({ assigned_driver: nextDriver }).eq('id', currentBookingId);
+            } else {
+                alert("စိတ်မရှိပါနဲ့၊ အနီးအနားတွင် အခြားယာဉ်မောင်း ထပ်မံရှာဖွေမတွေ့ရှိတော့ပါ။");
+                location.reload();
+            }
+        }
+
+        async function cancelBooking() {
+            if (!currentBookingId) { location.reload(); return; }
+            const { error } = await _supabase.from('bookings').update({ status: 'cancelled' }).eq('id', currentBookingId);
+            if (!error) { alert("ခရီးစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။"); location.reload(); }
+        }
+
+        function showDriverDetails(data) {
+            document.getElementById('waiting-ui').style.display = 'none';
+            document.getElementById('live-ui').style.display = 'block';
+            document.getElementById('d-name').innerText = data.driver_name || "ယာဉ်မောင်း";
+            document.getElementById('d-car').innerText = data.car_no || "ယာဉ်နံပါတ် စစ်ဆေးနေဆဲ";
+            if(data.driver_phone) document.getElementById('d-phone-btn').href = "tel:" + data.driver_phone;
+        }
+
+        function updateDriverMarker(lat, lng) {
+            if (!driverMarker) {
+                driverMarker = L.marker([lat, lng], { icon: taxiIcon }).addTo(map);
+            } else {
+                driverMarker.setLatLng([lat, lng]);
+            }
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>

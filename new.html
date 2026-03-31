@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyaPay Admin - Smart Dispatch System</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --sidebar-bg: #001a35; --main-bg: #f4f7f6; --primary: #002b5c; --accent: #007bff; --red: #ff4757; --success: #2ecc71; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; background: var(--main-bg); overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar { width: 260px; background: var(--sidebar-bg); color: white; display: flex; flex-direction: column; z-index: 1100; flex-shrink: 0; }
+        .sidebar-brand { padding: 25px 20px; font-size: 22px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--success); }
+        .nav-item { padding: 15px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; color: #adb5bd; transition: 0.3s; }
+        .nav-item:hover, .nav-item.active { background: rgba(255,255,255,0.1); color: white; border-left: 4px solid var(--success); }
+
+        .content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+        .section { display: none; padding: 25px; animation: fadeIn 0.3s ease; }
+        .section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Grid & Cards */
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .stat-card h3 { margin: 0; font-size: 13px; color: #888; text-transform: uppercase; }
+        .stat-card h2 { margin: 10px 0 0; font-size: 24px; color: var(--primary); }
+
+        /* Dispatch Layout */
+        .dispatch-wrapper { display: grid; grid-template-columns: 350px 1fr; gap: 20px; height: calc(100vh - 150px); }
+        .form-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow-y: auto; }
+        #map { height: 100%; width: 100%; border-radius: 15px; z-index: 1; }
+        #map-container { position: relative; height: 100%; }
+
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px; color: #555; }
+        .reg-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        
+        .loc-row { display: flex; align-items: center; background: #f8f9fa; border: 2px solid transparent; border-radius: 10px; padding: 10px; margin-bottom: 10px; cursor: pointer; }
+        .loc-row.active { border-color: var(--accent); background: white; }
+        .loc-row.dest.active { border-color: var(--red); }
+        .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }
+
+        .center-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); z-index: 1000; pointer-events: none; }
+        .btn-main { width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        
+        /* Tables */
+        .table-container { background: white; border-radius: 15px; overflow-x: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        th { background: #f8f9fa; padding: 15px; text-align: left; font-size: 13px; color: #666; border-bottom: 2px solid #eee; }
+        td { padding: 15px; border-bottom: 1px solid #eee; font-size: 14px; }
+        .badge { padding: 5px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-accepted { background: #cce5ff; color: #004085; }
+        .status-completed { background: #d4edda; color: #155724; }
+        
+        .leaflet-routing-container { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="sidebar-brand">PYAPAY ADMIN</div>
+    <div class="nav-item active" onclick="showSection('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</div>
+    <div class="nav-item" onclick="showSection('dispatch')"><i class="fa-solid fa-map-location-dot"></i> Manual Dispatch</div>
+    <div class="nav-item" onclick="showSection('drivers')"><i class="fa-solid fa-taxi"></i> Drivers</div>
+    <div class="nav-item" onclick="showSection('trips')"><i class="fa-solid fa-history"></i> Trips History</div>
+    <div class="nav-item" onclick="showSection('settings')"><i class="fa-solid fa-sliders"></i> System Settings</div>
+</div>
+
+<div class="content">
+    <div id="dashboard" class="section active">
+        <h2>Dashboard Overview</h2>
+        <div class="stat-grid">
+            <div class="stat-card"><h3>Drivers Online</h3><h2 id="st-drivers">0</h2></div>
+            <div class="stat-card"><h3>Active Trips</h3><h2 id="st-bookings">0</h2></div>
+            <div class="stat-card"><h3>Completed</h3><h2 id="st-total">0</h2></div>
+            <div class="stat-card" style="border-right: 5px solid var(--success);"><h3>Revenue</h3><h2 id="st-revenue">0 K</h2></div>
+        </div>
+        <button class="btn-main" style="width:auto; padding: 10px 20px;" onclick="loadAllData()">Refresh Data</button>
+    </div>
+
+    <div id="dispatch" class="section">
+        <div class="dispatch-wrapper">
+            <div class="form-card">
+                <h3>Manual Booking</h3>
+                <div class="input-group"><label>Passenger Phone</label><input type="number" id="u_phone" class="reg-input" placeholder="09xxxxxxxxx"></div>
+                <div class="loc-row active" id="p-row" onclick="setMode('pickup')"><div class="dot" style="background: var(--accent);"></div><input type="text" id="p-addr" style="border:none; background:transparent; width:100%; outline:none;" placeholder="Select Pickup" readonly></div>
+                <div class="loc-row" id="d-row" onclick="setMode('dest')"><div class="dot" style="background: var(--red);"></div><input type="text" id="d-addr" style="border:none; background:transparent; width:100%; outline:none;" placeholder="Select Destination" readonly></div>
+                <div id="fare-info" style="background:#f0f7ff; padding:15px; border-radius:15px; margin:15px 0; display:none; text-align:center;"><h2 id="fare-display" style="margin:0; color:var(--primary);">0 K</h2><div id="dist-display" style="font-size:12px; color:#666;">0.00 km</div></div>
+                <button id="dispatch-btn" class="btn-main" onclick="handleDispatchAction()">Confirm Pickup</button>
+                <button class="btn-main" style="background:#666;" onclick="location.reload()">Reset</button>
+            </div>
+            <div id="map-container">
+                <div id="map"></div>
+                <div class="center-pin" id="pin-ui"><i class="fa-solid fa-location-dot" id="target-pin" style="font-size: 40px; color: var(--accent);"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="drivers" class="section">
+        <h2>Drivers List</h2>
+        <div class="table-container"><table><thead><tr><th>Name</th><th>Phone</th><th>Car No</th><th>Balance</th><th>Status</th><th>Action</th></tr></thead><tbody id="driver-list"></tbody></table></div>
+    </div>
+
+    <div id="trips" class="section">
+        <h2>Trip History</h2>
+        <div class="table-container"><table><thead><tr><th>Trip ID</th><th>Passenger</th><th>Fare</th><th>Driver</th><th>Status</th></tr></thead><tbody id="trip-list"></tbody></table></div>
+    </div>
+
+    <div id="settings" class="section">
+        <h2>System Pricing Settings</h2>
+        <div class="form-card" style="max-width: 500px;">
+            <div class="input-group"><label>Base Fare (K)</label><input type="number" id="set-base" class="reg-input"></div>
+            <div class="input-group"><label>Per KM Rate (K)</label><input type="number" id="set-km" class="reg-input"></div>
+            <div class="input-group"><label>Platform Fee (K)</label><input type="number" id="set-plat" class="reg-input"></div>
+            <div class="input-group"><label>Comm (%) <i>(Driver Side)</i></label><input type="number" id="set-comm" class="reg-input" placeholder="e.g. 20"></div>
+            <button class="btn-main" style="background:var(--success);" onclick="savePricing()">Update Supabase Settings</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+<script>
+    const SB_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co';
+    const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2bnJycWpoemdhdWxmdnJqY2F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MTUwMDUsImV4cCI6MjA4ODA5MTAwNX0.ItRRfDMI7Go0F1kCJTXOzYrY620PpSMx_iy3qfXBxTc';
+    const _supabase = supabase.createClient(SB_URL, SB_KEY);
+
+    let map, mode = 'pickup', pLoc = null, dLoc = null, currentFare = 0, routeLine = null;
+
+    function initMap() {
+        map = L.map('map', { zoomControl: false }).setView([21.9588, 96.0891], 14);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+        map.on('moveend', () => { if(document.getElementById('pin-ui').style.display !== 'none') { const c = map.getCenter(); reverseGeocode(c.lat, c.lng); } });
+    }
+
+    async function reverseGeocode(lat, lng) {
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            const data = await res.json();
+            const addr = data.display_name.split(',')[0] || "Pinned Location";
+            if(mode === 'pickup') { pLoc = {lat, lng}; document.getElementById('p-addr').value = addr; }
+            else { dLoc = {lat, lng}; document.getElementById('d-addr').value = addr; }
+        } catch(e) {}
+    }
+
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('.loc-row').forEach(r => r.classList.remove('active', 'dest'));
+        const row = document.getElementById(m === 'pickup' ? 'p-row' : 'd-row');
+        row.classList.add('active'); if(m === 'dest') row.classList.add('dest');
+        document.getElementById('target-pin').style.color = m === 'pickup' ? "#007bff" : "#ff4757";
+        document.getElementById('pin-ui').style.display = 'block';
+        if(routeLine) { map.removeLayer(routeLine); routeLine = null; }
+        document.getElementById('dispatch-btn').innerText = m === 'pickup' ? "Confirm Pickup" : "Confirm Destination";
+    }
+
+    function handleDispatchAction() { if(mode === 'pickup') setMode('dest'); else showRouteAndPrice(); }
+
+    async function showRouteAndPrice() {
+        if(!pLoc || !dLoc) return;
+        document.getElementById('pin-ui').style.display = 'none';
+        const control = L.Routing.control({
+            waypoints: [L.latLng(pLoc.lat, pLoc.lng), L.latLng(dLoc.lat, dLoc.lng)],
+            router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+            createMarker: () => null,
+            lineOptions: { styles: [{ color: '#007bff', weight: 5 }] }
+        }).on('routesfound', async (e) => {
+            const dist = e.routes[0].summary.totalDistance / 1000;
+            const { data: cfg } = await _supabase.from('settings').select('*').eq('id', 1).single();
+            currentFare = Math.round(Number(cfg.base) + (dist * Number(cfg.km_price)));
+            document.getElementById('fare-display').innerText = `${currentFare.toLocaleString()} K`;
+            document.getElementById('dist-display').innerText = `${dist.toFixed(2)} km distance`;
+            document.getElementById('fare-info').style.display = 'block';
+            document.getElementById('dispatch-btn').innerText = "🚕 Dispatch Now";
+            document.getElementById('dispatch-btn').onclick = finalDispatch;
+        }).addTo(map);
+        routeLine = control;
+    }
+
+    async function finalDispatch() {
+        const phone = document.getElementById('u_phone').value; if(!phone) return alert("Enter Passenger Phone!");
+        const { data: drivers } = await _supabase.rpc('find_nearest_driver', { pickup_lat: pLoc.lat, pickup_lng: pLoc.lng });
+        if(!drivers || drivers.length === 0) return alert("No Drivers Found!");
+        const { error } = await _supabase.from('bookings').insert([{
+            u_phone: phone, u_lat: pLoc.lat, u_lng: pLoc.lng, dest_lat: dLoc.lat, dest_lng: dLoc.lng,
+            pickup_addr: document.getElementById('p-addr').value, dest_addr: document.getElementById('d-addr').value,
+            fare: currentFare, status: 'pending', assigned_driver: drivers[0].driver_phone
+        }]);
+        if(!error) { alert("Dispatched!"); location.reload(); }
+    }
+
+    async function savePricing() {
+        const { error } = await _supabase.from('settings').update({
+            base: document.getElementById('set-base').value,
+            km_price: document.getElementById('set-km').value,
+            platform: document.getElementById('set-plat').value,
+            comm: document.getElementById('set-comm').value // ပြင်ဆင်ပြီး
+        }).eq('id', 1);
+        if(!error) alert("Settings Saved to Supabase!"); else alert("Error: " + error.message);
+    }
+
+    async function loadAllData() {
+        const { data: cfg } = await _supabase.from('settings').select('*').eq('id', 1).single();
+        if(cfg) {
+            document.getElementById('set-base').value = cfg.base;
+            document.getElementById('set-km').value = cfg.km_price;
+            document.getElementById('set-plat').value = cfg.platform;
+            document.getElementById('set-comm').value = cfg.comm || 0; // ပြင်ဆင်ပြီး
+        }
+        const { data: drv } = await _supabase.from('drivers').select('*');
+        document.getElementById('st-drivers').innerText = drv ? drv.filter(d => d.is_online).length : 0;
+        document.getElementById('driver-list').innerHTML = drv ? drv.map(d => `<tr><td>${d.driver_name}</td><td>${d.phone}</td><td>${d.car_no}</td><td><b>${d.balance.toLocaleString()} K</b></td><td>${d.is_online?'Online':'Off'}</td><td><button onclick="topUp(${d.id},${d.balance})" style="cursor:pointer;">+Topup</button></td></tr>`).join('') : '';
+
+        const { data: trips } = await _supabase.from('bookings').select('*').order('id', {ascending: false});
+        if(trips) {
+            document.getElementById('st-bookings').innerText = trips.filter(t => t.status === 'accepted').length;
+            document.getElementById('st-total').innerText = trips.filter(t => t.status === 'completed').length;
+            let rev = 0; trips.filter(t => t.status === 'completed').forEach(t => rev += t.fare);
+            document.getElementById('st-revenue').innerText = rev.toLocaleString() + " K";
+            document.getElementById('trip-list').innerHTML = trips.map(t => `<tr><td>#${t.id}</td><td>${t.u_phone}</td><td>${t.fare.toLocaleString()}</td><td>${t.driver_name || '-'}</td><td><span class="badge status-${t.status}">${t.status}</span></td></tr>`).join('');
+        }
+    }
+
+    async function topUp(id, current) {
+        const amt = prompt("Amount:");
+        if(amt) { await _supabase.from('drivers').update({ balance: current + parseInt(amt) }).eq('id', id); loadAllData(); }
+    }
+
+    function showSection(id) {
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        if(id === 'dispatch') setTimeout(() => map.invalidateSize(), 300);
+    }
+
+    window.onload = () => { initMap(); loadAllData(); };
+</script>
+</body>
+</html>

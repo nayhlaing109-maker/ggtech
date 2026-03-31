@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Pya Pay Driver - Full Integrated</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { 
+            --accent: #007bff; --success: #00c853; --danger: #ff3d00;
+            --warning: #ffca28; --text: #333; --card-bg: #ffffff;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: var(--text);
+            margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+        }
+
+        /* Login Section */
+        #login-section { position: fixed; inset: 0; background: linear-gradient(135deg, #001a35 0%, #000000 100%); z-index: 2000; display: flex; justify-content: center; align-items: center; }
+        .login-card { background: rgba(22, 27, 34, 0.9); padding: 40px 30px; border-radius: 30px; width: 85%; max-width: 360px; text-align: center; color: white; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
+        .login-card input { width: 100%; padding: 15px; margin-bottom: 15px; border: 1px solid #30363d; background: #0d1117; border-radius: 12px; color: white; outline: none; }
+
+        /* Map & UI Controls */
+        #map { position: absolute; inset: 0; z-index: 1; }
+        .top-nav { position: relative; z-index: 1001; background: rgba(255,255,255,0.9); padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; backdrop-filter: blur(10px); }
+        .balance-pill { background: #f1f3f4; padding: 8px 12px; border-radius: 50px; font-weight: 700; font-size: 14px; }
+        
+        .switch { position: relative; width: 40px; height: 22px; display: inline-block; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; inset: 0; background: #ccc; border-radius: 34px; transition: .4s; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .4s; }
+        input:checked + .slider { background: var(--success); }
+        input:checked + .slider:before { transform: translateX(18px); }
+
+        #recenter-btn { position: absolute; right: 20px; bottom: 340px; z-index: 1006; background: white; width: 50px; height: 50px; border-radius: 50%; display: none; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.2); color: var(--accent); cursor: pointer; }
+
+        .ui-container { position: absolute; bottom: 80px; left: 0; width: 100%; z-index: 1006; padding: 20px; pointer-events: none; }
+        #ui-render { pointer-events: auto; max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 24px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); animation: slideUp 0.3s ease-out; }
+        
+        /* Bottom Nav */
+        .bottom-nav { position: fixed; bottom: 0; width: 100%; height: 70px; background: white; z-index: 1010; display: flex; border-top: 1px solid #eee; padding-bottom: env(safe-area-inset-bottom); }
+        .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #999; font-size: 11px; cursor: pointer; transition: 0.3s; }
+        .nav-item.active { color: var(--accent); }
+        .nav-item i { font-size: 20px; margin-bottom: 4px; }
+
+        /* Full Screen Overlays */
+        .overlay { position: fixed; inset: 0; background: white; z-index: 1050; display: none; flex-direction: column; padding-top: env(safe-area-inset-top); }
+        .overlay-header { padding: 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #eee; background: #fcfcfc; }
+        .overlay-content { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 100px; }
+
+        .history-item { padding: 15px; border-radius: 15px; background: #f8f9fa; margin-bottom: 12px; border: 1px solid #eee; }
+        .profile-row { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f1f1f1; }
+        .profile-label { color: #888; font-size: 14px; }
+        .profile-val { font-weight: 600; color: #333; }
+
+        .btn { width: 100%; padding: 14px; border-radius: 14px; border: none; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; margin-top: 10px; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: #fee; color: var(--danger); }
+        .btn-gmaps { background: #34a853; color: white; text-decoration: none; }
+        
+        .receipt-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .receipt-total { border-top: 2px solid #f1f1f1; padding-top: 10px; margin-top: 10px; font-weight: bold; font-size: 18px; color: var(--success); }
+        
+        .driver-loc-icon { background: var(--accent); border: 3px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+
+        @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="login-section">
+        <div class="login-card">
+            <div style="background: var(--accent); width: 60px; height: 60px; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
+                <i class="fa-solid fa-taxi fa-2x" style="color: white;"></i>
+            </div>
+            <h2>Pya Pay DRIVER</h2>
+            <input type="number" id="login-id" placeholder="ဖုန်းနံပါတ်" autocomplete="off">
+            <input type="password" id="login-pw" placeholder="Password" autocomplete="new-password">
+            <button class="btn btn-primary" onclick="handleLogin()">Login ဝင်မည်</button>
+            <p id="login-error" style="color: #ff3d00; font-size: 13px; margin-top: 15px; display: none;"></p>
+        </div>
+    </div>
+
+    <div id="main-app" style="display: none;">
+        <div class="top-nav">
+            <div class="balance-pill">
+                <i class="fa-solid fa-wallet" style="color: var(--warning);"></i>
+                <span id="driver-balance">0</span> K
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="status-text" style="font-size: 12px; font-weight: bold; color: #777;">OFFLINE</span>
+                <label class="switch">
+                    <input type="checkbox" id="status-toggle" onchange="handleStatusChange()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div id="map"></div>
+        <div id="recenter-btn" onclick="recenterMap()"><i class="fa-solid fa-crosshairs fa-lg"></i></div>
+
+        <div class="ui-container">
+            <div id="ui-render"></div>
+        </div>
+
+        <div class="bottom-nav">
+            <div class="nav-item active" id="nav-map" onclick="showTab('map')">
+                <i class="fa-solid fa-map"></i><span>မြေပုံ</span>
+            </div>
+            <div class="nav-item" id="nav-history" onclick="showTab('history')">
+                <i class="fa-solid fa-clock-rotate-left"></i><span>မှတ်တမ်း</span>
+            </div>
+            <div class="nav-item" id="nav-profile" onclick="showTab('profile')">
+                <i class="fa-solid fa-user-circle"></i><span>ကျွန်ုပ်</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="history-overlay" class="overlay">
+        <div class="overlay-header">
+            <i class="fa-solid fa-arrow-left fa-lg" onclick="showTab('map')" style="cursor:pointer; color: var(--accent);"></i>
+            <h2 style="margin:0; font-size: 18px;">ခရီးစဉ်မှတ်တမ်းများ</h2>
+        </div>
+        <div class="overlay-content" id="history-list">
+        </div>
+    </div>
+
+    <div id="profile-overlay" class="overlay">
+        <div class="overlay-header">
+            <i class="fa-solid fa-arrow-left fa-lg" onclick="showTab('map')" style="cursor:pointer; color: var(--accent);"></i>
+            <h2 style="margin:0; font-size: 18px;">ကျွန်ုပ်၏ အချက်အလက်</h2>
+        </div>
+        <div class="overlay-content" id="profile-data">
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+    // ၁။ Firebase Config ကို ဒီမှာထားပါ
+    const firebaseConfig = {
+        apiKey: "AIzaSyB3oEgakHXj4N0os0QO61-HOuM165VOVYI",
+        authDomain: "pyapay-driver.firebaseapp.com",
+        projectId: "pyapay-driver",
+        storageBucket: "pyapay-driver.firebasestorage.app",
+        messagingSenderId: "719139320259",
+        appId: "1:719139320259:web:2e81dc869c0358135bcd76"
+    };
+
+    // Firebase initialize လုပ်ပြီးတာနဲ့ ဒါလေးထည့်ပါ
+navigator.serviceWorker.register('/Ggtaxi/firebase-messaging-sw.js')
+  .then((registration) => {
+    messaging.useServiceWorker(registration);
+    console.log('Service Worker registered successfully');
+  })
+  .catch((err) => {
+    console.log('Service Worker registration failed:', err);
+  });
+
+async function requestToken() {
+    try {
+        const token = await messaging.getToken({ 
+            vapidKey: 'BJboSWTePyZJaTV9i7QiWNL2Fuy6ldPGqDulBnI02yHTft4wtsQtC83X6D7g0dT1HJR3ScpQjJghXZ4G6Yc330E' 
+        });
+        
+        if (token) {
+            let dId = localStorage.getItem('driver_id'); // 09699672380 ရလာပါမယ်
+            
+            if (dId) {
+                // ရှေ့ဆုံးက '0' ကို ဖြတ်လိုက်ပါ (9699672380 ဖြစ်သွားပါမယ်)
+                // ဒါမှ Table ထဲက 'id' column နဲ့ သွားကိုက်မှာပါ
+                const cleanId = dId.startsWith('0') ? dId.substring(1) : dId;
+
+                const { error } = await _supabase
+                    .from('drivers')
+                    .update({ fcm_token: token })
+                    .eq('id', cleanId); // phone အစား id နဲ့ စစ်လိုက်ပါ
+                
+                if (error) {
+                    console.log('Supabase Error:', error.message);
+                } else {
+                    console.log('Success! Token saved for ID:', cleanId);
+                }
+            }
+        }
+    } catch (err) {
+        console.log('FCM Error:', err);
+    }
+}
+
+    // ... သင့်ရဲ့ တခြား handleLogin() နဲ့ initApp() function များ ...
+</script>
+    <script>
+        const SUPABASE_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2bnJycWpoemdhdWxmdnJqY2F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MTUwMDUsImV4cCI6MjA4ODA5MTAwNX0.ItRRfDMI7Go0F1kCJTXOzYrY620PpSMx_iy3qfXBxTc';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let map, myMarker, userMarker, isOnline = false, pollInterval;
+        let myPos = { lat: 21.95, lng: 96.08 }, activeJob = null, driverId = null, driverData = null;
+        let appSettings = { comm: 20, platform: 500 };
+
+        const myIcon = L.divIcon({
+            className: 'driver-loc-icon',
+            html: '<div style="width:14px; height:14px; background:#007bff; border-radius:50%; margin:2px;"></div>',
+            iconSize: [24, 24]
+        });
+
+        window.onload = async () => {
+            const savedId = localStorage.getItem('driver_id');
+            if (savedId) {
+                const { data } = await _supabase.from('drivers').select('*').eq('phone', savedId).single();
+                if (data && !data.is_banned) {
+                    driverId = data.phone; driverData = data;
+                    document.getElementById('login-section').style.display = 'none';
+                    document.getElementById('main-app').style.display = 'block';
+                    document.getElementById('driver-balance').innerText = data.balance.toLocaleString();
+                    initApp();
+                } else { localStorage.clear(); }
+            }
+        };
+
+        async function handleLogin() {
+            const id = document.getElementById('login-id').value;
+            const pw = document.getElementById('login-pw').value;
+            const { data, error } = await _supabase.from('drivers').select('*').eq('phone', id).eq('password', pw).single();
+            if (data) {
+                if (data.is_banned) return alert("Account banned!");
+                driverId = data.phone; driverData = data;
+                localStorage.setItem('driver_id', driverId);
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('main-app').style.display = 'block';
+                document.getElementById('driver-balance').innerText = data.balance.toLocaleString();
+                initApp();
+            } else {
+                document.getElementById('login-error').innerText = "ဖုန်းနံပါတ် သို့မဟုတ် Password မှားနေပါသည်။";
+                document.getElementById('login-error').style.display = "block";
+            }
+        }
+
+        function initApp() {
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([myPos.lat, myPos.lng], 15);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+            myMarker = L.marker([myPos.lat, myPos.lng], { icon: myIcon }).addTo(map);
+            map.on('dragstart', () => document.getElementById('recenter-btn').style.display = 'flex');
+            startLocationTracking();
+        // Notification Token တောင်းပြီး Supabase မှာ သိမ်းရန် ခေါ်ယူခြင်း
+    requestToken(); 
+}
+
+        // --- Realtime Location Update logic ပေါင်းထည့်ထားပါသည် ---
+        function startLocationTracking() {
+            navigator.geolocation.watchPosition(async pos => {
+                myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                myMarker.setLatLng([myPos.lat, myPos.lng]);
+                
+                if (driverId) {
+                    // Drivers table ကို update လုပ်ခြင်း
+                    await _supabase.from('drivers').update({ 
+                        driver_lat: myPos.lat, driver_lng: myPos.lng,
+                        is_online: isOnline, is_available: isOnline && !activeJob 
+                    }).eq('phone', driverId);
+                    
+                    // ခရီးသည် မြင်ရအောင် Bookings table ကိုပါ Realtime Update လုပ်ပေးခြင်း
+                    if(activeJob) {
+                        await _supabase.from('bookings').update({ 
+                            driver_lat: myPos.lat, 
+                            driver_lng: myPos.lng 
+                        }).eq('id', activeJob.id);
+                    }
+                }
+            }, null, { enableHighAccuracy: true });
+        }
+
+        async function handleStatusChange() {
+            isOnline = document.getElementById('status-toggle').checked;
+            const statusTxt = document.getElementById('status-text');
+            await _supabase.from('drivers').update({ is_online: isOnline, is_available: isOnline }).eq('phone', driverId);
+            if (isOnline) {
+                statusTxt.innerText = "ONLINE"; statusTxt.style.color = "var(--success)";
+                pollJobs(); pollInterval = setInterval(pollJobs, 5000);
+            } else {
+                statusTxt.innerText = "OFFLINE"; statusTxt.style.color = "#777";
+                clearInterval(pollInterval); document.getElementById('ui-render').innerHTML = "";
+            }
+        }
+
+        async function pollJobs() {
+            if (!isOnline || activeJob) return;
+            const { data } = await _supabase.from('bookings').select('*').eq('status', 'pending').eq('assigned_driver', driverId).limit(1);
+            if (data && data.length > 0) {
+                let job = data[0];
+                document.getElementById('ui-render').innerHTML = `
+                    <div class="card">
+                        <div style="font-weight:bold; font-size:14px; color:var(--accent);">အနီးဆုံး ခရီးစဉ်တစ်ခု ရရှိပါပြီ</div>
+                        <div style="font-size:14px; margin: 5px 0; color:#666;">📍 ${job.pickup_addr || 'လက်ရှိနေရာ'}</div>
+                        <div style="font-size:16px; margin-bottom: 8px; font-weight:600;">🏁 ${job.dest_addr}</div>
+                        <div style="font-size:22px; font-weight:800; color:var(--success);">${Number(job.fare).toLocaleString()} K</div>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-danger" style="flex:1;" onclick="rejectJob(${job.id})">ငြင်းပယ်</button>
+                            <button class="btn btn-primary" style="flex:2;" onclick="acceptJob(${job.id})">လက်ခံ</button>
+                        </div>
+                    </div>`;
+                if(!userMarker) userMarker = L.marker([job.u_lat, job.u_lng]).addTo(map);
+                map.flyTo([job.u_lat, job.u_lng], 16);
+            }
+        }
+
+        function trackBookingStatus(bookingId) {
+            _supabase.channel('booking_status').on('postgres_changes', { 
+                event: 'UPDATE', schema: 'public', table: 'bookings', filter: `id=eq.${bookingId}` 
+            }, payload => {
+                if (payload.new.status === 'cancelled') {
+                    alert("ခရီးသည်မှ ခရီးစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။");
+                    location.reload();
+                }
+            }).subscribe();
+        }
+
+        async function acceptJob(id) {
+            const { data } = await _supabase.from('bookings').update({ 
+                status: 'accepted', driver_id: driverId, driver_name: driverData.driver_name,
+                driver_phone: driverId, car_no: driverData.car_no,
+                driver_lat: myPos.lat, driver_lng: myPos.lng
+            }).eq('id', id).select().single();
+            if (data) { activeJob = data; trackBookingStatus(id);
+                document.getElementById('ui-render').innerHTML = `
+                    <div class="card">
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${data.u_lat},${data.u_lng}" target="_blank" class="btn btn-gmaps">ခရီးသည်ထံ သွားမည်</a>
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <a href="tel:${data.u_phone}" class="btn btn-primary" style="flex:1;"><i class="fa-solid fa-phone"></i> ဖုန်းဆက်</a>
+                            <button class="btn btn-success" style="flex:1;" onclick="startTrip()">ရောက်ရှိပြီ</button>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        async function rejectJob(bookingId) {
+            if(confirm("ဤခရီးစဉ်ကို ငြင်းပယ်မှာ သေချာပါသလား?")) {
+                await _supabase.from('bookings').update({ assigned_driver: null }).eq('id', bookingId);
+                location.reload();
+            }
+        }
+
+        function startTrip() {
+            document.getElementById('ui-render').innerHTML = `
+                <div class="card">
+                    <div style="font-weight:600; margin-bottom:10px;">➡️ ${activeJob.dest_addr}</div>
+                    <a href="https://www.google.com/maps/dir/?api=1&destination=${activeJob.dest_lat},${activeJob.dest_lng}" target="_blank" class="btn btn-gmaps">လမ်းညွှန်</a>
+                    <button class="btn btn-primary" onclick="showReceipt()">ခရီးစဉ် ပြီးဆုံးပြီ</button>
+                </div>`;
+        }
+
+        async function showReceipt() {
+            const { data: cfg } = await _supabase.from('settings').select('comm, platform').eq('id', 1).single();
+            if(cfg) { appSettings.comm = cfg.comm; appSettings.platform = cfg.platform; }
+            const fare = Number(activeJob.fare);
+            const comm = Math.round(fare * (appSettings.comm / 100));
+            const plat = Number(appSettings.platform);
+            const totalDeduction = comm + plat;
+            document.getElementById('ui-render').innerHTML = `
+                <div class="card">
+                    <div class="receipt-row"><span>စုစုပေါင်း ရငွေ</span> <span>${fare.toLocaleString()} K</span></div>
+                    <div class="receipt-row" style="color:red;"><span>ဝန်ဆောင်ခ (${appSettings.comm}%)</span> <span>- ${comm.toLocaleString()} K</span></div>
+                    <div class="receipt-row" style="color:red;"><span>Platform Fee</span> <span>- ${plat.toLocaleString()} K</span></div>
+                    <div class="receipt-total"><span>အသားတင် ရငွေ</span> <span>${(fare - totalDeduction).toLocaleString()} K</span></div>
+                    <button class="btn btn-success" onclick="completeJob(${totalDeduction})">အတည်ပြုသည်</button>
+                </div>`;
+        }
+
+        async function completeJob(deduction) {
+            const { data: dData } = await _supabase.from('drivers').select('balance').eq('phone', driverId).single();
+            await _supabase.from('drivers').update({ balance: dData.balance - deduction, is_available: true }).eq('phone', driverId);
+            await _supabase.from('bookings').update({ status: 'completed' }).eq('id', activeJob.id);
+            alert("ခရီးစဉ် ပြီးဆုံးပါပြီ။");
+            location.reload(); 
+        }
+
+        async function showTab(tab) {
+            document.querySelectorAll('.overlay').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`nav-${tab}`).classList.add('active');
+            if (tab === 'history') { document.getElementById('history-overlay').style.display = 'flex'; loadHistory(); }
+            else if (tab === 'profile') { document.getElementById('profile-overlay').style.display = 'flex'; loadProfile(); }
+            else { map.invalidateSize(); }
+        }
+
+        async function loadHistory() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = "<p style='text-align:center;'>Loading...</p>";
+            const { data } = await _supabase.from('bookings').select('*').eq('driver_phone', driverId).order('id', {ascending: false}).limit(20);
+            if (data && data.length > 0) {
+                list.innerHTML = data.map(b => `
+                    <div class="history-item">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <small style="color:#888;">#${b.id}</small>
+                            <span style="font-weight:bold; color:var(--success);">${Number(b.fare).toLocaleString()} K</span>
+                        </div>
+                        <div style="font-size:14px; margin-bottom:3px;"><i class="fa-solid fa-location-dot" style="color:#007bff; width:20px;"></i> ${b.pickup_addr || 'Unknown'}</div>
+                        <div style="font-size:14px;"><i class="fa-solid fa-flag-checkered" style="color:#ff3d00; width:20px;"></i> ${b.dest_addr}</div>
+                    </div>
+                `).join('');
+            } else { list.innerHTML = "<p style='text-align:center; color:#999; margin-top:50px;'>ခရီးစဉ်မှတ်တမ်း မရှိသေးပါ။</p>"; }
+        }
+
+        function loadProfile() {
+            const container = document.getElementById('profile-data');
+            container.innerHTML = `
+                <div style="text-align:center; margin-bottom:30px;">
+                    <div style="width:80px; height:80px; background:#eee; border-radius:50%; margin:0 auto 15px; display:flex; align-items:center; justify-content:center;">
+                        <i class="fa-solid fa-user fa-2x" style="color:#ccc;"></i>
+                    </div>
+                    <h3 style="margin:0;">${driverData.driver_name}</h3>
+                </div>
+                <div class="profile-row"><span class="profile-label">ကားအမှတ်</span> <span class="profile-val">${driverData.car_no}</span></div>
+                <div class="profile-row"><span class="profile-label">ဖုန်းနံပါတ်</span> <span class="profile-val">${driverData.phone}</span></div>
+                <div class="profile-row"><span class="profile-label">လက်ကျန်ငွေ</span> <span class="profile-val" style="color:var(--accent);">${driverData.balance.toLocaleString()} K</span></div>
+                <button class="btn btn-danger" style="margin-top:40px;" onclick="logout()">Logout ထွက်မည်</button>
+            `;
+        }
+
+        function logout() { if(confirm("Logout?")) { localStorage.clear(); location.reload(); } }
+        function recenterMap() { map.flyTo([myPos.lat, myPos.lng], 16); document.getElementById('recenter-btn').style.display = 'none'; }
+    </script>
+</body>
+</html>
