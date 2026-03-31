@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FCM Notification Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .token-display {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔔 FCM Notification Test</h1>
+        
+        <div class="form-group">
+            <label>Driver Phone Number (to check FCM token):</label>
+            <input type="text" id="driverPhone" placeholder="e.g., 09123456789" value="09123456789">
+        </div>
+        
+        <button onclick="checkDriver()">Check Driver & FCM Token</button>
+        
+        <div id="driverStatus"></div>
+    </div>
+
+    <div class="card">
+        <h2>Send Test Notification</h2>
+        
+        <div class="form-group">
+            <label>FCM Token:</label>
+            <input type="text" id="fcmToken" placeholder="Enter FCM token">
+        </div>
+        
+        <div class="form-group">
+            <label>Notification Title:</label>
+            <input type="text" id="title" value="Test Notification" placeholder="Enter title">
+        </div>
+        
+        <div class="form-group">
+            <label>Notification Body:</label>
+            <textarea id="body" rows="3" placeholder="Enter message body">This is a test notification from the Edge Function!</textarea>
+        </div>
+        
+        <button onclick="sendNotification()">Send Test Notification</button>
+        
+        <div id="sendStatus"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2bnJycWpoemdhdWxmdnJqY2F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MTUwMDUsImV4cCI6MjA4ODA5MTAwNX0.ItRRfDMI7Go0F1kCJTXOzYrY620PpSMx_iy3qfXBxTc';
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        const EDGE_FUNCTION_URL = 'https://qvnrrqjhzgaulfvrjcay.supabase.co/functions/v1/send-notification';
+
+        async function checkDriver() {
+            const phone = document.getElementById('driverPhone').value;
+            const statusDiv = document.getElementById('driverStatus');
+            
+            if (!phone) {
+                showStatus('driverStatus', 'Please enter a phone number', 'error');
+                return;
+            }
+            
+            showStatus('driverStatus', 'Checking driver...', 'info');
+            
+            try {
+                // Remove leading 0 for lookup if present
+                const cleanId = phone.startsWith('0') ? phone.substring(1) : phone;
+                
+                const { data, error } = await _supabase
+                    .from('drivers')
+                    .select('id, phone, driver_name, fcm_token, is_online, is_available')
+                    .eq('id', cleanId)
+                    .single();
+                
+                if (error || !data) {
+                    showStatus('driverStatus', `Driver not found: ${error?.message || 'No data'}`, 'error');
+                    return;
+                }
+                
+                let html = `<div class="status success">`;
+                html += `<strong>✅ Driver Found!</strong><br>`;
+                html += `Name: ${data.driver_name}<br>`;
+                html += `Phone: ${data.phone}<br>`;
+                html += `Online: ${data.is_online ? '✅' : '❌'}<br>`;
+                html += `Available: ${data.is_available ? '✅' : '❌'}<br>`;
+                
+                if (data.fcm_token) {
+                    html += `FCM Token: <span class="token-display">${data.fcm_token}</span>`;
+                    // Auto-fill the FCM token input
+                    document.getElementById('fcmToken').value = data.fcm_token;
+                } else {
+                    html += `FCM Token: ❌ Not found`;
+                }
+                
+                html += `</div>`;
+                statusDiv.innerHTML = html;
+                
+            } catch (err) {
+                showStatus('driverStatus', `Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function sendNotification() {
+            const fcmToken = document.getElementById('fcmToken').value;
+            const title = document.getElementById('title').value;
+            const body = document.getElementById('body').value;
+            const statusDiv = document.getElementById('sendStatus');
+            
+            if (!fcmToken) {
+                showStatus('sendStatus', 'Please enter an FCM token', 'error');
+                return;
+            }
+            
+            if (!title || !body) {
+                showStatus('sendStatus', 'Please enter both title and body', 'error');
+                return;
+            }
+            
+            showStatus('sendStatus', 'Sending notification...', 'info');
+            
+            try {
+                const response = await fetch(EDGE_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        fcmToken: fcmToken,
+                        title: title,
+                        body: body,
+                        data: {
+                            type: 'test',
+                            timestamp: new Date().toISOString()
+                        }
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus('sendStatus', `✅ Notification sent successfully!<br>Response: ${JSON.stringify(result, null, 2)}`, 'success');
+                } else {
+                    showStatus('sendStatus', `❌ Failed to send: ${result.error || JSON.stringify(result)}`, 'error');
+                }
+                
+            } catch (err) {
+                showStatus('sendStatus', `❌ Error: ${err.message}`, 'error');
+            }
+        }
+
+        function showStatus(elementId, message, type) {
+            const div = document.getElementById(elementId);
+            div.className = `status ${type}`;
+            div.innerHTML = message;
+        }
+    </script>
+</body>
+</html>
