@@ -19,7 +19,16 @@ async function getAccessToken(): Promise<string> {
   const privateKeyPem = serviceAccount.private_key
   const pemHeader = '-----BEGIN PRIVATE KEY-----'
   const pemFooter = '-----END PRIVATE KEY-----'
-  const pemContents = privateKeyPem.substring(pemHeader.length, privateKeyPem.length - pemFooter.length).replace(/\s|\n/g, '')
+  
+  // Extract base64 content between header and footer
+  const pemContents = privateKeyPem
+    .replace(pemHeader, '')
+    .replace(pemFooter, '')
+    .replace(/\\n/g, '')
+    .replace(/\n/g, '')
+    .replace(/\s/g, '')
+    .trim()
+  
   const privateKeyBuffer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0))
 
   const key = await crypto.subtle.importKey(
